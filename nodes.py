@@ -88,7 +88,8 @@ class NovelAITXT2IMGPayload(BaseRequest):
     def __init__(
             self, ucPreset: int,
             cfg_rescale: int, characterPrompts: list[CharacterPrompt]|list,
-            prefer_brownian: bool, base_request: BaseRequest, model
+            prefer_brownian: bool, base_request: BaseRequest, model,
+            skip_cfg_above_sigma_enable: bool = False
     ):
         super().__init__(**vars(base_request))
 
@@ -100,6 +101,14 @@ class NovelAITXT2IMGPayload(BaseRequest):
         self.noise_schedule = base_request.scheduler
         self.characterPrompts = characterPrompts
         self.model = model
+        self.skip_cfg_above_sigma_enable = skip_cfg_above_sigma_enable
+        
+        # 设置skip_cfg_above_sigma值
+        if self.skip_cfg_above_sigma_enable:
+            self.skip_cfg_above_sigma = 59.04722600415217
+        else:
+            self.skip_cfg_above_sigma = None
+            
         characterPrompts_list = []
 
         for cp in self.characterPrompts:
@@ -388,7 +397,9 @@ class NovelAIRequestPayload:
                 "cfg_rescale": ("INT", {"default": 0}),
                 "characterPrompts": ("LIST",),
                 "prefer_brownian": ("BOOLEAN", {"default": False}),
-                "model": (model_list, )
+                "model": (model_list, ),
+                "skip_cfg_above_sigma_enable": ("BOOLEAN", {"default": False}),
+
             }
         }
 
@@ -416,6 +427,7 @@ class NovelAIRequestPayload:
             prefer_brownian,
             model,
             characterPrompts=[],
+            skip_cfg_above_sigma_enable: bool = False
     ):
         negative_prompt = negative_prompt + "," + ucPreset
         instance_ = BaseRequest(
@@ -433,7 +445,7 @@ class NovelAIRequestPayload:
 
         ucPreset = ucPreset_list.index(ucPreset)
 
-        instance_ = NovelAITXT2IMGPayload(ucPreset,cfg_rescale,characterPrompts,prefer_brownian, instance_, model)
+        instance_ = NovelAITXT2IMGPayload(ucPreset,cfg_rescale,characterPrompts,prefer_brownian, instance_, model, skip_cfg_above_sigma_enable)
 
         return instance_, dict(vars(instance_))
 
