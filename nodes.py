@@ -10,7 +10,7 @@ import torch
 import numpy as np
 from PIL import Image
 from io import BytesIO
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, Tuple
 
 ucPreset_list = [
     "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, logo, dated, signature, multiple views, gigantic breasts",
@@ -19,19 +19,32 @@ ucPreset_list = [
 ]
 
 
-async def post_novelai(url, data, header, proxy):
+async def post_novelai(url, data, header, proxy=None):
     async with aiohttp.ClientSession(headers=header) as session:
         try:
-            async with session.post(url, json=data, proxy=proxy) as response:
-                if response.status == 429:
-                    resp = await response.json()
-                    message = resp.get("message", "Too many requests, retrying...")
-                    await asyncio.sleep(5)
-                    return await post_novelai(url, data, header, proxy)
-                elif response.status == 200:
-                    return await response.read()
-                else:
-                    raise Exception(f"Request failed with status {response.status}")
+            # 프록시가 None이면 프록시 없이 요청
+            if proxy is None:
+                async with session.post(url, json=data) as response:
+                    if response.status == 429:
+                        resp = await response.json()
+                        message = resp.get("message", "Too many requests, retrying...")
+                        await asyncio.sleep(5)
+                        return await post_novelai(url, data, header, proxy)
+                    elif response.status == 200:
+                        return await response.read()
+                    else:
+                        raise Exception(f"Request failed with status {response.status}")
+            else:
+                async with session.post(url, json=data, proxy=proxy) as response:
+                    if response.status == 429:
+                        resp = await response.json()
+                        message = resp.get("message", "Too many requests, retrying...")
+                        await asyncio.sleep(5)
+                        return await post_novelai(url, data, header, proxy)
+                    elif response.status == 200:
+                        return await response.read()
+                    else:
+                        raise Exception(f"Request failed with status {response.status}")
         except Exception as e:
             print(f"Error during request: {e}")
             raise e
@@ -87,7 +100,7 @@ class BaseRequest:
 class NovelAITXT2IMGPayload(BaseRequest):
     def __init__(
             self, ucPreset: int,
-            cfg_rescale: int, characterPrompts: list[CharacterPrompt]|list,
+            cfg_rescale: int, characterPrompts: Union[List[CharacterPrompt], List],
             prefer_brownian: bool, base_request: BaseRequest, model,
             skip_cfg_above_sigma_enable: bool = False
     ):
@@ -220,10 +233,10 @@ class NovelAIRequest:
         return {
             "required": {
                 "payload": ("NovelAITXT2IMGPayload",),
+                "token": ("STRING", {"multiline": True, "default": "", "placeholder": "Enter your NovelAI API token"}),
             },
             "optional": {
-                "token": ("STRING", {"default": "ey...."}),
-                "proxy": ("STRING", {"default": "http://127.0.0.1:7890"})
+                "proxy": ("STRING", {"default": "", "placeholder": "http://127.0.0.1:7890 (leave empty for no proxy)"})
             },
         }
 
@@ -232,6 +245,7 @@ class NovelAIRequest:
     FUNCTION = "novelai_generate_image"
     OUTPUT_NODE = True
     CATEGORY = "SDWebUI-API/SDWebUI-API"
+    INPUT_IS_LIST = False
 
     def novelai_generate_image(self, payload, token, proxy):
 
@@ -240,7 +254,6 @@ class NovelAIRequest:
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
-        token = token if token else os.getenv("NOVELAI_TOKEN", "")
         header = {
             "authorization": "Bearer " + token,
             ":authority": "https://api.novelai.net",
@@ -256,6 +269,10 @@ class NovelAIRequest:
             "parameters": dict(vars(payload))
 
         }
+
+        # 프록시가 빈 문자열이거나 None이면 프록시 없이 요청
+        if not proxy or proxy.strip() == "":
+            proxy = None
 
         response_data = asyncio.run(post_novelai("https://image.novelai.net/ai/generate-image", payload, header, proxy))
 
